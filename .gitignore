@@ -1,0 +1,27 @@
+# Model weights (can be large)
+*.pth
+*.pt
+*.ckpt
+
+# Raw scraped images (not curated yet)
+raw_images/
+
+# Evaluation output
+evaluation_results.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.env
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
