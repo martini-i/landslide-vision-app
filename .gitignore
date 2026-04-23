@@ -8,6 +8,7 @@ raw_images/
 
 # Evaluation output
 evaluation_results.png
+val_confusion_matrix.png
 
 # Python
 __pycache__/

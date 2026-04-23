@@ -7,10 +7,13 @@ from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
 # ===== CONFIG =====
 DATA_DIR = "slope_dataset"
 BATCH_SIZE = 16
-EPOCHS = 30
+EPOCHS = 20
 LR = 1e-3
 UNFREEZE_EPOCH = 10       # epoch at which we unfreeze the backbone for fine-tuning
 UNFREEZE_LR = 1e-4        # lower LR for backbone layers after unfreezing
@@ -47,17 +50,17 @@ val_transform = transforms.Compose([
 # ===== LOAD DATA =====
 train_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "train"), transform=train_transform)
 val_dataset   = datasets.ImageFolder(os.path.join(DATA_DIR, "val"),   transform=val_transform)
-test_dataset  = datasets.ImageFolder(os.path.join(DATA_DIR, "test"),  transform=val_transform)
+# test_dataset  = datasets.ImageFolder(os.path.join(DATA_DIR, "test"),  transform=val_transform)
 
 # num_workers=0 is safest on Windows; increase if on Linux/Mac
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,  num_workers=0, pin_memory=True)
 val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True)
-test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True)
+# test_loader  = DataLoader(test_dataset,  batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=True)
 
 class_names = train_dataset.classes
 print(f"Classes: {class_names}")
-print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}")
-
+print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)}")
+#  | Test: {len(test_dataset)} insert after
 # ===== CLASS WEIGHTS (handles imbalanced datasets) =====
 # If you have more stable than unstable images (or vice versa), this corrects for it.
 class_counts = [0] * len(class_names)
@@ -150,7 +153,7 @@ for epoch in range(1, EPOCHS + 1):
         scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS - UNFREEZE_EPOCH)
 
     train_loss, train_acc, _, _ = run_epoch(train_loader, training=True)
-    val_loss,   val_acc,   _, _ = run_epoch(val_loader,   training=False)
+    val_loss, val_acc, val_preds, val_labels = run_epoch(val_loader, training=False)
     scheduler.step()
 
     history["train_loss"].append(train_loss)
@@ -178,3 +181,15 @@ torch.save({
 print(f"\nBest Validation Accuracy: {best_val_acc:.4f}")
 print(f"Model saved to: {MODEL_PATH}")
 print("\nRun evaluate.py to see full metrics on the test set.")
+
+# ===== CONFUSION MATRIX (VAL SET) =====
+cm = confusion_matrix(val_labels, val_preds)
+
+print("\nConfusion Matrix (Validation Set):")
+print(cm)
+
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+disp.plot(cmap="Blues")
+plt.title("Validation Confusion Matrix")
+plt.savefig("val_confusion_matrix.png", dpi=150)
+plt.show()
