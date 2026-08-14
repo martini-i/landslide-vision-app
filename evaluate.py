@@ -33,10 +33,10 @@ arch = checkpoint.get("model_arch", "ResNet")
 if "EfficientNet" in arch:
     model = models.efficientnet_b0(weights=None)
     in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, 2)
+    model.classifier[1] = nn.Sequential(nn.Dropout(0.3), nn.Linear(in_features, 2))
 else:
     model = models.resnet18(weights=None)
-    model.fc = nn.Linear(model.fc.in_features, 2)
+    model.fc = nn.Sequential(nn.Dropout(0.3), nn.Linear(model.fc.in_features, 2))
 
 model.load_state_dict(checkpoint["model_state_dict"])
 model = model.to(device)
@@ -50,12 +50,13 @@ test_transform = transforms.Compose([
                          [0.229, 0.224, 0.225])
 ])
 
-test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=test_transform)
-test_loader  = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+test_dataset = datasets.ImageFolder(os.path.join(DATA_DIR, "test"), transform=test_transform, allow_empty=True)
 
 if len(test_dataset) == 0:
     print("Test set is empty. Add images to slope_dataset/test/stable and /unstable first.")
     exit()
+
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
 
 # ===== INFERENCE =====
 all_preds, all_labels, all_probs = [], [], []

@@ -1,5 +1,6 @@
 import os
 import copy
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +12,11 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 
 # ===== CONFIG =====
+parser = argparse.ArgumentParser()
+parser.add_argument("--arch", choices=["resnet18", "efficientnet_b0"], default="resnet18",
+                     help="Backbone architecture. resnet18 is the documented baseline.")
+args = parser.parse_args()
+
 DATA_DIR = "slope_dataset"
 BATCH_SIZE = 16
 EPOCHS = 20
@@ -72,22 +78,31 @@ print(f"Class counts: {dict(zip(class_names, class_counts))}")
 print(f"Class weights: {dict(zip(class_names, class_weights.tolist()))}")
 
 # ===== MODEL =====
-# EfficientNet-B0 outperforms ResNet18 on small datasets due to better parameter efficiency.
-# Falls back to ResNet18 if EfficientNet is unavailable (older torchvision).
-try:
+# ResNet18 is the documented baseline for this project.
+# EfficientNet-B0 is available via --arch for secondary comparison, not as the reported result.
+DROPOUT_P = 0.3
+WEIGHT_DECAY = 5e-4
+
+if args.arch == "efficientnet_b0":
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
     in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, 2)
+    model.classifier[1] = nn.Sequential(nn.Dropout(DROPOUT_P), nn.Linear(in_features, 2))
     backbone_params = [p for name, p in model.named_parameters() if "classifier" not in name]
     head_params     = list(model.classifier.parameters())
+    # Only unfreeze the last feature block during fine-tuning, not the whole backbone —
+    # limits capacity added back in, which matters a lot on a small dataset.
+    unfreeze_params = list(model.features[-1].parameters())
     print("Using EfficientNet-B0")
-except AttributeError:
+else:
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
     in_features = model.fc.in_features
-    model.fc = nn.Linear(in_features, 2)
+    model.fc = nn.Sequential(nn.Dropout(DROPOUT_P), nn.Linear(in_features, 2))
     backbone_params = [p for name, p in model.named_parameters() if "fc" not in name]
     head_params     = list(model.fc.parameters())
-    print("Using ResNet18 (fallback)")
+    # Only unfreeze layer4 (the last residual block) during fine-tuning, not the whole backbone —
+    # limits capacity added back in, which matters a lot on a small dataset.
+    unfreeze_params = list(model.layer4.parameters())
+    print("Using ResNet18")
 
 # Freeze backbone initially — only train the new head
 for p in backbone_params:
@@ -98,7 +113,7 @@ model = model.to(device)
 criterion = nn.CrossEntropyLoss(weight=class_weights)
 
 # Only head params are active at first
-optimizer = optim.AdamW(head_params, lr=LR, weight_decay=1e-4)
+optimizer = optim.AdamW(head_params, lr=LR, weight_decay=WEIGHT_DECAY)
 scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
 # ===== HELPERS =====
@@ -136,20 +151,25 @@ def run_epoch(loader, training=True):
     return total_loss / total, correct / total, all_preds, all_labels
 
 # ===== TRAIN LOOP =====
+# Best checkpoint is selected by lowest val LOSS, not val accuracy — accuracy on a
+# small val set jumps in coarse 1/N increments and is a noisier signal than loss.
 best_weights = copy.deepcopy(model.state_dict())
+best_val_loss = float("inf")
 best_val_acc = 0.0
+best_val_preds, best_val_labels = [], []
 history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
 
 for epoch in range(1, EPOCHS + 1):
-    # Unfreeze backbone at UNFREEZE_EPOCH for full fine-tuning
+    # Unfreeze only the last block at UNFREEZE_EPOCH for limited fine-tuning —
+    # keeping the rest of the backbone frozen reduces capacity to memorize the small train set.
     if epoch == UNFREEZE_EPOCH:
-        print(f"\n>>> Unfreezing backbone at epoch {epoch} with LR={UNFREEZE_LR}")
-        for p in backbone_params:
+        print(f"\n>>> Unfreezing last block at epoch {epoch} with LR={UNFREEZE_LR}")
+        for p in unfreeze_params:
             p.requires_grad = True
         optimizer = optim.AdamW([
-            {"params": backbone_params, "lr": UNFREEZE_LR},
+            {"params": unfreeze_params, "lr": UNFREEZE_LR},
             {"params": head_params,     "lr": LR}
-        ], weight_decay=1e-4)
+        ], weight_decay=WEIGHT_DECAY)
         scheduler = CosineAnnealingLR(optimizer, T_max=EPOCHS - UNFREEZE_EPOCH)
 
     train_loss, train_acc, _, _ = run_epoch(train_loader, training=True)
@@ -165,10 +185,12 @@ for epoch in range(1, EPOCHS + 1):
           f"Train Loss: {train_loss:.4f} Acc: {train_acc:.4f} | "
           f"Val Loss: {val_loss:.4f} Acc: {val_acc:.4f}")
 
-    if val_acc > best_val_acc:
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
         best_val_acc = val_acc
         best_weights = copy.deepcopy(model.state_dict())
-        print(f"  ✓ New best val acc: {best_val_acc:.4f}")
+        best_val_preds, best_val_labels = val_preds, val_labels
+        print(f"  New best val loss: {best_val_loss:.4f} (val acc: {best_val_acc:.4f})")
 
 # ===== SAVE =====
 model.load_state_dict(best_weights)
@@ -182,10 +204,10 @@ print(f"\nBest Validation Accuracy: {best_val_acc:.4f}")
 print(f"Model saved to: {MODEL_PATH}")
 print("\nRun evaluate.py to see full metrics on the test set.")
 
-# ===== CONFUSION MATRIX (VAL SET) =====
-cm = confusion_matrix(val_labels, val_preds)
+# ===== CONFUSION MATRIX (VAL SET, BEST EPOCH) =====
+cm = confusion_matrix(best_val_labels, best_val_preds)
 
-print("\nConfusion Matrix (Validation Set):")
+print("\nConfusion Matrix (Validation Set, Best Epoch):")
 print(cm)
 
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
