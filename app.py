@@ -1,5 +1,5 @@
 """
-app.py — Gradio interface for the slope surface-indicator classifier.
+app.py — Gradio interface for GroundTruth, the slope surface-indicator classifier.
 Run with: python app.py
 Then open the local URL shown in your terminal.
 
@@ -20,9 +20,10 @@ def predict(image: Image.Image):
     return result["scores"], result["assessment"]
 
 # ===== GRADIO UI =====
-with gr.Blocks(title="Slope Surface Indicator Classifier", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="GroundTruth", theme=gr.themes.Soft()) as demo:
     gr.Markdown("""
-    # Slope Surface Indicator Classifier
+    # GroundTruth
+    ##### Slope Surface Indicator Classifier
     Upload a **ground-level photo of a slope** to check for visible surface indicators
     associated with potential slope instability.
 

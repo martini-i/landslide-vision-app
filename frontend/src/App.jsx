@@ -6,11 +6,15 @@ import { predictImage, gradcamImage } from "./api";
 import "./App.css";
 
 const EXAMPLES = [
-  { label: "Stable — natural rock", path: "/examples/stable_cliff_001.jpg" },
-  { label: "Stable — engineered", path: "/examples/stable_engineered_001.jpg" },
-  { label: "Unstable — crack", path: "/examples/unstable_crack_001.jpg" },
-  { label: "Unstable — scarp", path: "/examples/unstable_scarp_007.jpg" },
+  { label: "Stable — natural rock", tone: "stable", path: "/examples/stable_cliff_001.jpg" },
+  { label: "Stable — engineered", tone: "stable", path: "/examples/stable_engineered_001.jpg" },
+  { label: "Unstable — crack", tone: "unstable", path: "/examples/unstable_crack_001.jpg" },
+  { label: "Unstable — scarp", tone: "unstable", path: "/examples/unstable_scarp_007.jpg" },
 ];
+
+function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -72,7 +76,17 @@ export default function App() {
     <div className="app" data-theme={theme}>
       <header>
         <div className="top-bar">
-          <h1>Slope Surface Indicator Classifier</h1>
+          <div className="brand">
+            <span className="brand-mark" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                <path d="M2 19h20L15 6l-4 7-3-4-6 10z" fill="currentColor" opacity="0.9" />
+              </svg>
+            </span>
+            <div>
+              <h1>GroundTruth</h1>
+              <p className="subtitle">Slope Surface Indicator Classifier</p>
+            </div>
+          </div>
           <button
             className="theme-toggle"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -103,6 +117,7 @@ export default function App() {
 
           <div className="button-row">
             <button onClick={handleAnalyze} disabled={!file || loading} className="btn-primary">
+              {loading ? <Spinner /> : null}
               {loading ? "Working…" : "Analyze"}
             </button>
             <button onClick={handleShowGradcam} disabled={!file || loading} className="btn-secondary">
@@ -111,17 +126,30 @@ export default function App() {
           </div>
 
           <div className="examples">
-            <span>Try an example:</span>
-            {EXAMPLES.map((ex) => (
-              <button key={ex.path} className="example-btn" onClick={() => handleExampleClick(ex.path)}>
-                {ex.label}
-              </button>
-            ))}
+            <span className="examples-label">Try an example</span>
+            <div className="examples-grid">
+              {EXAMPLES.map((ex) => (
+                <button
+                  key={ex.path}
+                  className="example-card"
+                  onClick={() => handleExampleClick(ex.path)}
+                  title={ex.label}
+                >
+                  <img src={ex.path} alt={ex.label} />
+                  <span className={`example-tag example-tag--${ex.tone}`}>{ex.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </section>
 
         <section className="results-section">
           {error && <p className="error">{error}</p>}
+          {!result && !gradcamUrl && !error && (
+            <div className="placeholder">
+              <p>Results will appear here once you analyze an image.</p>
+            </div>
+          )}
           {result && (
             <>
               <ConfidenceBars scores={result.scores} />

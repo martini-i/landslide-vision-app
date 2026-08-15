@@ -12,7 +12,7 @@ export default function ImageUpload({ onFileSelected, previewUrl }) {
 
   return (
     <div
-      className={`upload-dropzone${dragOver ? " drag-over" : ""}`}
+      className={`upload-dropzone${dragOver ? " drag-over" : ""}${previewUrl ? " has-preview" : ""}`}
       onClick={() => inputRef.current?.click()}
       onDragOver={(e) => {
         e.preventDefault();
@@ -35,7 +35,14 @@ export default function ImageUpload({ onFileSelected, previewUrl }) {
       {previewUrl ? (
         <img src={previewUrl} alt="Uploaded slope" className="upload-preview" />
       ) : (
-        <p>Drop a slope image here, or click to upload</p>
+        <div className="upload-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 16.5V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M7 9l5-5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M12 4v13" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <p>Drop a slope image here, or click to upload</p>
+        </div>
       )}
     </div>
   );

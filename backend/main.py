@@ -1,11 +1,12 @@
 """
-backend/main.py — FastAPI wrapper around model_utils.py for the React frontend.
+backend/main.py — FastAPI backend for GroundTruth, wrapping model_utils.py for the React frontend.
 Run from the project root with: uvicorn backend.main:app --reload --port 8000
 """
 
 import io
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import model_utils
@@ -13,9 +14,10 @@ import model_utils
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-app = FastAPI(title="Slope Surface Indicator Classifier API")
+app = FastAPI(title="GroundTruth API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,3 +53,12 @@ def gradcam(file: UploadFile = File(...)):
     buf = io.BytesIO()
     overlay.save(buf, format="PNG")
     return Response(content=buf.getvalue(), media_type="image/png")
+
+
+# In production (Docker), the React app is pre-built into frontend/dist and served
+# from this same FastAPI process — one container, one port. This mount must stay
+# last so it doesn't shadow the API routes above; it only activates if the built
+# frontend is actually present (i.e. not during local `uvicorn --reload` dev use).
+_frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")

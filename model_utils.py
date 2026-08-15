@@ -11,6 +11,11 @@ from torchvision import transforms, models
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
+# ADE20K class index for "sky" in the pretrained segmentation model used by crop_sky().
+SKY_CLASS_INDEX = 2
+SKY_PIXEL_MIN_FRACTION = 0.03   # below this, treat as no real sky band present
+SKY_CROP_MAX_FRACTION = 0.55    # never crop away more than this much of the image
+
 MODEL_PATH = "slope_model.pth"
 
 # Decision threshold is intentionally lower than 0.5: missing a genuinely unstable
@@ -30,6 +35,8 @@ _model = None
 _class_names = None
 _device = None
 _cam = None
+_seg_processor = None
+_seg_model = None
 
 
 def load_model():
@@ -62,6 +69,60 @@ def load_model():
     return _model, _class_names, _device
 
 
+def _load_segmentation_model():
+    """Load the pretrained sky-segmentation model once and cache it."""
+    global _seg_processor, _seg_model
+    if _seg_model is not None:
+        return _seg_processor, _seg_model
+
+    from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation
+    _seg_processor = SegformerImageProcessor.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
+    _seg_model = SegformerForSemanticSegmentation.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
+    _seg_model.eval()
+    return _seg_processor, _seg_model
+
+
+def crop_sky(image: Image.Image) -> Image.Image:
+    """
+    Crops out the sky using a pretrained ADE20K segmentation model, so the
+    classifier and Grad-CAM focus on the hillside itself rather than
+    sky/clouds. Falls back to the original image if little/no sky is
+    detected (e.g. close-up crops).
+
+    Applied identically at training time (see crop_dataset_sky.py) and
+    inference time (predict/gradcam_overlay below) — cropping only at
+    inference would create a train/inference mismatch, since the model
+    would suddenly see framing very different from what it was trained on.
+    """
+    processor, seg_model = _load_segmentation_model()
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        logits = seg_model(**inputs).logits
+    upsampled = nn.functional.interpolate(
+        logits, size=image.size[::-1], mode="bilinear", align_corners=False
+    )
+    pred = upsampled.argmax(dim=1)[0].numpy()
+    sky_mask = pred == SKY_CLASS_INDEX
+
+    if sky_mask.mean() < SKY_PIXEL_MIN_FRACTION:
+        return image
+
+    h, w = sky_mask.shape
+    lowest_sky_per_col = [
+        np.where(sky_mask[:, c])[0].max()
+        for c in range(w) if sky_mask[:, c].any()
+    ]
+    if not lowest_sky_per_col:
+        return image
+
+    # Median across columns is robust to a handful of columns with stray
+    # sky pixels (e.g. gaps between rocks) pulling the estimate too deep.
+    crop_top = int(np.median(lowest_sky_per_col))
+    crop_top = min(crop_top, int(h * SKY_CROP_MAX_FRACTION))
+
+    return image.crop((0, crop_top, image.width, h))
+
+
 def assess(unstable_prob: float) -> str:
     """Turn a raw P(unstable) into the actual (threshold-adjusted) call."""
     if unstable_prob >= UNSTABLE_HIGH_CONFIDENCE:
@@ -79,6 +140,7 @@ def predict(image: Image.Image) -> dict:
     model, class_names, device = load_model()
 
     image = image.convert("RGB")
+    image = crop_sky(image)
     tensor = _transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -100,6 +162,7 @@ def gradcam_overlay(image: Image.Image) -> Image.Image:
     device = _device
 
     image = image.convert("RGB")
+    image = crop_sky(image)
     rgb_img = np.array(image.resize((224, 224))).astype(np.float32) / 255.0
     input_tensor = _transform(image).unsqueeze(0).to(device)
 

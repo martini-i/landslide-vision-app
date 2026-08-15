@@ -1,4 +1,8 @@
-const API_BASE = "http://localhost:8000";
+// In dev, the frontend (Vite, :5173) and backend (uvicorn, :8000) are separate
+// servers, so requests need the full backend URL. In production the built frontend
+// is served by the same FastAPI process, so relative paths hit the right place
+// automatically regardless of host/port.
+const API_BASE = import.meta.env.DEV ? "http://localhost:8000" : "";
 
 export async function predictImage(file) {
   const formData = new FormData();
